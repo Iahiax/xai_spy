@@ -3,7 +3,7 @@
 // بوت لعبة الجاسوس لمنصة WOLF Live
 // ================================================================
 
-const WolfClient = require("wolf.js");
+const { Client } = require("wolf.js");
 const fs = require("fs");
 const path = require("path");
 
@@ -155,7 +155,7 @@ function buildPlayersList(players, language) {
 
 async function sendGroupMessage(client, groupId, message) {
   try {
-    // wolf.js v2.x expects a plain string (not an object) as the message content
+    // wolf.js expects plain string content
     await client.messaging.sendMessage("group", groupId, message);
   } catch (e) {
     console.error("[Send] Group message error:", e.message);
@@ -164,7 +164,7 @@ async function sendGroupMessage(client, groupId, message) {
 
 async function sendPrivateMessage(client, userId, message) {
   try {
-    // wolf.js v2.x expects a plain string (not an object) as the message content
+    // wolf.js expects plain string content
     await client.messaging.sendMessage("private", userId, message);
   } catch (e) {
     console.error("[Send] Private message error:", e.message);
@@ -185,7 +185,6 @@ async function handleNewGame(client, message, language) {
     return sendGroupMessage(client, groupId, msg);
   }
 
-  // إعادة تعيين وإنشاء لعبة جديدة
   resetGame();
   gameState.active = true;
   gameState.language = language;
@@ -200,7 +199,6 @@ async function handleNewGame(client, message, language) {
     : "/me يلا يا حلوين بدينا اللعبه انظموا للعبه بالأمر هذا \"!جاسوس انظم او !جس انظم\"";
   await sendGroupMessage(client, groupId, msg);
 
-  // مؤقت 5 دقائق: إغلاق تلقائي إذا لم ينضم أحد أو لم تبدأ
   const t = setTimeout(async () => {
     if (gameState.active && gameState.phase === "joining" && gameState.groupId === groupId) {
       console.log("[Timer] Auto-closing due to inactivity (joining phase)");
@@ -236,7 +234,6 @@ async function handleJoin(client, message) {
     return sendGroupMessage(client, groupId, msg);
   }
 
-  // جلب اسم اللاعب
   let nickname = `User_${sourceId}`;
   try {
     const profile = await client.subscriber.getById(sourceId);
@@ -291,7 +288,7 @@ async function handleStart(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// بدء جولة جديدة (يُستدعى عند البدء وعند الاستمرار التلقائي)
+// بدء جولة جديدة
 // ––––––––––––––––––––––––––––––––
 async function startRound(client, groupId, language) {
   clearTimers();
@@ -299,7 +296,6 @@ async function startRound(client, groupId, language) {
   gameState.secretFruit = getRandomFruit();
   gameState.spyId = getRandomSpy(gameState.players);
 
-  // إعادة تعيين حالة التصويت
   gameState.players = gameState.players.map((p) => ({
     ...p,
     hasVoted: false,
@@ -312,7 +308,6 @@ async function startRound(client, groupId, language) {
 
   console.log(`[Round] Starting round. Fruit: ${gameState.secretFruit}, Spy: ${gameState.spyId}`);
 
-  // إرسال كلمة السر للاعبين (ما عدا الجاسوس)
   for (const player of gameState.players) {
     if (player.id !== gameState.spyId) {
       const pm = language === "en"
@@ -322,13 +317,11 @@ async function startRound(client, groupId, language) {
     }
   }
 
-  // إرسال رسالة للجاسوس
   const spyMsg = language === "en"
     ? "You’re the spy. Twist the game around and choose whoever you think won’t figure you out. That keeps suspicion off you, and you can even bet they’ll choose wrong 🥴"
     : "إنت الجاسوس يا قلب قلبي، لفّها عليهم واختار أي لاعب من القايمة تحسّه بيغلط في كشفك. كذا ما أحد بيشك فيك، وتقدر تراهن بعد إنه بيغلط في اختيارك 🥴";
   await sendPrivateMessage(client, gameState.spyId, spyMsg);
 
-  // إرسال قائمة اللاعبين للمجموعة
   const listMsg = buildPlayersList(gameState.players, language);
   await sendGroupMessage(client, groupId, listMsg);
 
@@ -337,7 +330,6 @@ async function startRound(client, groupId, language) {
     : "🗳️ صوّت لمن تعتقد أنه الجاسوس! أرسل رقم اللاعب.";
   await sendGroupMessage(client, groupId, voteInstructions);
 
-  // مؤقت 5 دقائق: إغلاق إذا لم يصوّت أحد
   const tNoVote = setTimeout(async () => {
     if (gameState.active && gameState.phase === "voting") {
       const allVoted = gameState.players.every((p) => p.hasVoted);
@@ -356,7 +348,6 @@ async function startRound(client, groupId, language) {
   }, 5 * 60 * 1000);
   gameState.timers.push(tNoVote);
 
-  // مؤقت 4 دقائق: طرد من لم يصوّت وإكمال اللعبة
   const tKickNonVoters = setTimeout(async () => {
     if (gameState.active && gameState.phase === "voting") {
       const nonVoters = gameState.players.filter((p) => !p.hasVoted);
@@ -381,7 +372,7 @@ async function startRound(client, groupId, language) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// معالجة التصويت والمراهنة / Vote & Bet Handler
+// معالجة التصويت والمراهنة
 // ––––––––––––––––––––––––––––––––
 async function handleVoteAndBet(client, message) {
   const groupId = message.targetId;
@@ -394,7 +385,6 @@ async function handleVoteAndBet(client, message) {
   const player = gameState.players.find((p) => p.id === sourceId);
   if (!player) return;
 
-  // هل اللاعب ينتظر إدخال مبلغ الرهان؟
   if (player.waitingForBet) {
     const amount = parseInt(content, 10);
     if (isNaN(amount) || amount < 0) return;
@@ -410,15 +400,13 @@ async function handleVoteAndBet(client, message) {
       : `/me راهنت بـ ${actualBet} نقطة على اللاعب رقم ${gameState.players.findIndex((p) => p.id === player.betTarget) + 1} (${gameState.players.find((p) => p.id === player.betTarget)?.nickname || "?"}) 🎲`;
     await sendGroupMessage(client, groupId, betConfirm);
 
-    // تحقق إذا اكتمل التصويت
     await checkVotingComplete(client, groupId, language);
     return;
   }
 
-  // التصويت: يجب أن يكون رقماً صحيحاً
   const voteNum = parseInt(content, 10);
   if (isNaN(voteNum) || voteNum < 1 || voteNum > gameState.players.length) return;
-  if (player.hasVoted) return; // لا يمكن التصويت مرتين
+  if (player.hasVoted) return;
 
   const targetPlayer = gameState.players[voteNum - 1];
   if (!targetPlayer) return;
@@ -433,7 +421,6 @@ async function handleVoteAndBet(client, message) {
     : `/me ${player.nickname} صوّت على اللاعب رقم ${voteNum} (${targetPlayer.nickname}) ✅`;
   await sendGroupMessage(client, groupId, voteAck);
 
-  // طلب المراهنة
   player.betTarget = targetPlayer.id;
   player.waitingForBet = true;
   const betPrompt = language === "en"
@@ -453,7 +440,7 @@ async function checkVotingComplete(client, groupId, language) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// كشف الجاسوس وحساب النقاط / Reveal Spy & Calculate Points
+// كشف الجاسوس وحساب النقاط
 // ––––––––––––––––––––––––––––––––
 async function revealSpy(client, groupId, language) {
   clearTimers();
@@ -466,7 +453,6 @@ async function revealSpy(client, groupId, language) {
     return;
   }
 
-  // كشف الجاسوس
   const revealMsg = language === "en"
     ? `/alert This is the traitor:\n${spy.id} | ${spy.nickname}`
     : `/alert هذا هو الخاين البواق:\n${spy.id} | ${spy.nickname}`;
@@ -477,14 +463,11 @@ async function revealSpy(client, groupId, language) {
     : `🍎 كلمة السر كانت: ${gameState.secretFruit}`;
   await sendGroupMessage(client, groupId, secretMsg);
 
-  // حساب نقاط التصويت
   for (const player of gameState.players) {
     if (player.vote === gameState.spyId) {
-      // أصاب: +1 نقطة
       player.points += 1;
       updatePlayerPoints(player.id, player.nickname, 1);
     }
-    // الجاسوس: -1 لكل شخص كشفه
     if (player.id === gameState.spyId) {
       const detectedBy = gameState.players.filter((p) => p.vote === gameState.spyId && p.id !== gameState.spyId).length;
       if (detectedBy > 0) {
@@ -495,23 +478,19 @@ async function revealSpy(client, groupId, language) {
     }
   }
 
-  // حساب نقاط المراهنة
   for (const bettor of gameState.players) {
     if (!bettor.hasBet || bettor.betAmount <= 0) continue;
     const target = gameState.players.find((p) => p.id === bettor.betTarget);
     if (!target) continue;
 
-    const bettorCorrect = bettor.vote === gameState.spyId;
+    const bettorCorrect = (bettor.vote === gameState.spyId);
 
-    // بشكل عام: من يصيب يكسب، من يخطئ يخسر
     if (bettorCorrect) {
-      // المراهن أصاب: +2x المبلغ
       bettor.points += bettor.betAmount * 2;
-      target.points -= bettor.betAmount; // من نقاط الهدف (ولو سالب)
+      target.points -= bettor.betAmount;
       updatePlayerPoints(bettor.id, bettor.nickname, bettor.betAmount * 2);
       updatePlayerPoints(target.id, target.nickname, -bettor.betAmount);
     } else {
-      // المراهن أخطأ: -2x المبلغ
       bettor.points -= bettor.betAmount * 2;
       target.points += bettor.betAmount;
       updatePlayerPoints(bettor.id, bettor.nickname, -(bettor.betAmount * 2));
@@ -519,14 +498,12 @@ async function revealSpy(client, groupId, language) {
     }
   }
 
-  // عرض ملخص النقاط
   const pointsSummary = gameState.players
     .map((p) => `${p.nickname}: ${p.points >= 0 ? "+" : ""}${p.points} 📊`)
     .join("\n");
   const summaryHeader = language === "en" ? "📊 Round Summary:\n" : "📊 ملخص الجولة:\n";
   await sendGroupMessage(client, groupId, summaryHeader + pointsSummary);
 
-  // وضع تلقائي أو سؤال الاستمرار
   if (gameState.autoMode) {
     await sendGroupMessage(client, groupId, language === "en" ? "/me Starting new round automatically... 🔄" : "/me جولة جديدة تبدأ تلقائياً... 🔄");
     setTimeout(() => startRound(client, groupId, language), 3000);
@@ -540,7 +517,7 @@ async function revealSpy(client, groupId, language) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// معالجة الاستمرار أو الإنهاء / Continue or End Handler
+// معالجة الاستمرار أو الإنهاء
 // ––––––––––––––––––––––––––––––––
 async function handleContinue(client, message) {
   const groupId = message.targetId;
@@ -563,7 +540,7 @@ async function handleContinue(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// طرد لاعب / Kick Player Handler
+// طرد لاعب
 // ––––––––––––––––––––––––––––––––
 async function handleKick(client, message, playerNum) {
   const groupId = message.targetId;
@@ -590,7 +567,7 @@ async function handleKick(client, message, playerNum) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// ترتيب اللاعبين / Rank Handler
+// ترتيب اللاعبين
 // ––––––––––––––––––––––––––––––––
 async function handleRank(client, message) {
   const groupId = message.targetId;
@@ -609,7 +586,7 @@ async function handleRank(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// الترتيب العام / Global Rank Handler
+// الترتيب العام
 // ––––––––––––––––––––––––––––––––
 async function handleGeneral(client, message) {
   const groupId = message.targetId;
@@ -624,7 +601,7 @@ async function handleGeneral(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// مجموع النقاط / Total Points Handler
+// مجموع النقاط
 // ––––––––––––––––––––––––––––––––
 async function handleTotal(client, message) {
   const groupId = message.targetId;
@@ -639,7 +616,7 @@ async function handleTotal(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// الوضع التلقائي / Auto Mode Handler
+// الوضع التلقائي
 // ––––––––––––––––––––––––––––––––
 async function handleAutoMode(client, message) {
   const groupId = message.targetId;
@@ -657,7 +634,7 @@ async function handleAutoMode(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// إيقاف الوضع التلقائي / Stop Auto Mode Handler
+// إيقاف الوضع التلقائي
 // ––––––––––––––––––––––––––––––––
 async function handleStop(client, message) {
   const groupId = message.targetId;
@@ -675,7 +652,7 @@ async function handleStop(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// إنهاء اللعبة / End Game Handler
+// إنهاء اللعبة
 // ––––––––––––––––––––––––––––––––
 async function handleEnd(client, message) {
   const groupId = message.targetId;
@@ -695,7 +672,7 @@ async function handleEnd(client, message) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// قائمة المساعدة / Help Handler
+// قائمة المساعدة
 // ––––––––––––––––––––––––––––––––
 async function handleHelp(client, message, language) {
   const groupId = message.targetId;
@@ -732,11 +709,9 @@ async function handleHelp(client, message, language) {
 }
 
 // ––––––––––––––––––––––––––––––––
-// معالج الرسائل الرئيسي / Main Message Handler
+// معالج الرسائل الرئيسي
 // ––––––––––––––––––––––––––––––––
 async function onMessage(client, message) {
-  // نتجاهل رسائل البوت نفسه
-  // Group check is done in the event handler above
   if (!message.targetId) return;
 
   const body = (message.body || message.content || "").trim();
@@ -744,9 +719,6 @@ async function onMessage(client, message) {
 
   const lower = body.toLowerCase();
 
-  // ================================================================
-  // أوامر إنشاء لعبة جديدة
-  // ================================================================
   if (body === "!جاسوس جديد" || body === "!جس جديد") {
     return handleNewGame(client, message, "ar");
   }
@@ -754,9 +726,6 @@ async function onMessage(client, message) {
     return handleNewGame(client, message, "en");
   }
 
-  // ================================================================
-  // أوامر الانضمام
-  // ================================================================
   if (body === "!جاسوس انظم" || body === "!جس انظم") {
     return handleJoin(client, message);
   }
@@ -764,9 +733,6 @@ async function onMessage(client, message) {
     return handleJoin(client, message);
   }
 
-  // ================================================================
-  // أوامر البدء
-  // ================================================================
   if (body === "!جاسوس بدء" || body === "!جس بدء") {
     return handleStart(client, message);
   }
@@ -774,9 +740,6 @@ async function onMessage(client, message) {
     return handleStart(client, message);
   }
 
-  // ================================================================
-  // أوامر الطرد
-  // ================================================================
   const kickArMatch = body.match(/^!(?:جاسوس|جس) طرد (\d+)$/);
   if (kickArMatch) {
     return handleKick(client, message, kickArMatch[1]);
@@ -786,9 +749,6 @@ async function onMessage(client, message) {
     return handleKick(client, message, kickEnMatch[1]);
   }
 
-  // ================================================================
-  // أوامر الترتيب
-  // ================================================================
   if (body === "!جاسوس ترتيب" || body === "!جس ترتيب" || lower === "!spy rank") {
     return handleRank(client, message);
   }
@@ -799,9 +759,6 @@ async function onMessage(client, message) {
     return handleTotal(client, message);
   }
 
-  // ================================================================
-  // أوامر الوضع التلقائي
-  // ================================================================
   if (body === "!جاسوس تلقائي" || body === "!جس تلقائي" || lower === "!spy auto") {
     return handleAutoMode(client, message);
   }
@@ -809,16 +766,10 @@ async function onMessage(client, message) {
     return handleStop(client, message);
   }
 
-  // ================================================================
-  // أوامر الإنهاء
-  // ================================================================
   if (body === "!جاسوس انهاء" || body === "!جس انهاء" || lower === "!spy end") {
     return handleEnd(client, message);
   }
 
-  // ================================================================
-  // أوامر المساعدة
-  // ================================================================
   if (body === "!جاسوس مساعده" || body === "!جاسوس مساعدة" || body === "!جس مساعده" || body === "!جس مساعدة") {
     return handleHelp(client, message, "ar");
   }
@@ -826,9 +777,6 @@ async function onMessage(client, message) {
     return handleHelp(client, message, "en");
   }
 
-  // ================================================================
-  // معالجة التصويت، المراهنة، والاستمرار
-  // ================================================================
   if (gameState.active) {
     if (gameState.phase === "voting") {
       await handleVoteAndBet(client, message);
@@ -849,7 +797,6 @@ function resetInactivityTimer(client) {
   if (inactivityTimer) clearTimeout(inactivityTimer);
   inactivityTimer = setTimeout(async () => {
     console.log("[Inactivity] One week without activity. Shutting down bot...");
-    // wolf.js v2.x uses client.disconnect() not client.logout()
     try {
       if (typeof client.disconnect === "function") await client.disconnect();
     } catch (e) {
@@ -865,21 +812,20 @@ function resetInactivityTimer(client) {
 async function main() {
   console.log("[Bot] Starting XAI Spy Game Bot...");
 
-  const client = new WolfClient();
+  const client = new Client({
+    email: EMAIL,
+    password: PASSWORD
+  });
 
-  // معالج تسجيل الدخول
   client.on("ready", async () => {
     console.log("[Bot] ✅ Bot is ready and connected!");
     resetInactivityTimer(client);
   });
 
-  // معالج الرسائل
   client.on("message", async (message) => {
     try {
-      // تحديث مؤقت عدم النشاط
       resetInactivityTimer(client);
 
-      // معالجة الرسائل الجماعية فقط
       if (message.isGroup === true) {
         await onMessage(client, message);
       }
@@ -888,19 +834,16 @@ async function main() {
     }
   });
 
-  // معالج قطع الاتصال
   client.on("disconnected", () => {
     console.log("[Bot] ⚠️ Disconnected. Attempting to reconnect...");
   });
 
-  // معالج الأخطاء
   client.on("error", (err) => {
     console.error("[Bot] Error:", err.message);
   });
 
-  // تسجيل الدخول
   try {
-    await client.login(EMAIL, PASSWORD);
+    await client.login();
     console.log("[Bot] 🔐 Login initiated...");
   } catch (err) {
     console.error("[Bot] ❌ Login failed:", err.message);
@@ -908,7 +851,6 @@ async function main() {
   }
 }
 
-// تشغيل البوت
 main().catch((err) => {
   console.error("[Fatal] Bot crashed:", err.message, err.stack);
   process.exit(1);
